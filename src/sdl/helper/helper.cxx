@@ -2,6 +2,7 @@
 #include <sstream>
 
 #include "SDL.h"
+#include "SDL_syswm.h"
 
 #include "helper.hpp"
 #include "init_error.hpp"
@@ -76,4 +77,8 @@ namespace sdl {
     void Helper::setSDLGLAttr(SDL_GLattr a, int to) noexcept(false) {
 	setSDLGLAttr(a, to, glAttrNames[a]);
     }
+
+    SDL_SysWMinfo foo;
+    SDL_Event mouseEvt = SDL_Event{ .motion = { .x = 100, .y = 100 } };
+    void      Helper::resetMouse() { SDL_PushEvent(&mouseEvt); }
 }; // namespace sdl

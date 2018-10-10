@@ -13,7 +13,7 @@ namespace sdl {
 	               0.0f, -0.5f, -0.5f, 0.0f };
 
     const char* vertex_shader = R"(
-#version 400
+#version 410
 in vec3 vp;
 void main() {
   gl_Position = vec4(vp, 1.0);
@@ -21,7 +21,7 @@ void main() {
 
     const char* fragment_shader =
       R"(
-#version 400
+#version 410
 out vec4 frag_colour;
 void main() {
   frag_colour = vec4(0.5, 0.0, 0.5, 1.0);
@@ -40,6 +40,8 @@ void main() {
     }
 
     const Uint32 GLRenderer::windowFlags() noexcept(true) {
+	// return SDL_WINDOW_OPENGL | //| SDL_WINDOW_SHOWN |
+	//        SDL_WINDOW_FULLSCREEN;
 	return SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_SHOWN |
 	       SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_OPENGL |
 	       SDL_WINDOW_INPUT_GRABBED | SDL_WINDOW_INPUT_FOCUS |
@@ -53,6 +55,7 @@ void main() {
     void GLRenderer::postHooks() noexcept(true) {
 	printf("Configuring SDL for OpenGL 4.1\n");
 	Helper::glPostHooks();
+	Helper::resetMouse();
     }
 
     GLRenderer::GLRenderer(SDL_Window* win, int w,

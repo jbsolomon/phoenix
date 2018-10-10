@@ -26,6 +26,8 @@ namespace sdl {
 	static void setSDLGLAttr(const SDL_GLattr, const int,
 	                         const std::string&) noexcept(false);
 	static int  getGLAttr(const SDL_GLattr what) noexcept(false);
+
+	static void resetMouse();
     };
 } // namespace sdl
 #endif
