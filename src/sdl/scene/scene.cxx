@@ -1,76 +1,56 @@
+#include <optional>
+
 #include <id.hpp>
 
 #include "phx_sdl/scene.hpp"
 
 namespace phx_sdl {
 
-    void Triangle::encode_renderpass(
-      const vk::CommandBuffer&         into,
-      const vk::DispatchLoaderDynamic& loader,
-      const vk::RenderPass& pass, const vk::Framebuffer& fb,
-      const vk::Extent2D& extent, const vk::Pipeline& pipeline,
-      const uint32_t device_mask) const noexcept {
+    std::tuple<vk::DescriptorSetLayout, vk::PipelineLayout>
+    Scene::create_pipeline_layout(
+      const vk::Device& device, const vk::DispatchLoaderDynamic& loader,
+      const std::optional<vk::DescriptorSetLayout> layout) const
+      noexcept {
 
-	// Make a clearcolor config.
-	vk::ClearValue ccol(vk::ClearColorValue(
-	  std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f }));
+	// Pipeline layout includes information about uniform buffers
+	// and push constants. etc.
+	vk::DescriptorSetLayoutBinding uboBindings(
+	  0, vk::DescriptorType::eUniformBuffer, 1,
+	  vk::ShaderStageFlagBits::eAll);
 
-	// Set the device mask.
-	into.setDeviceMaskKHR(device_mask, loader);
+	// The descriptor set layout is necessary for using push
+	// constants and UBOs.
+	auto descriptor_set_layout =
+	  layout.has_value() ? layout.value()
+	                     : device.createDescriptorSetLayout(
+	                         vk::DescriptorSetLayoutCreateInfo(
+	                           vk::DescriptorSetLayoutCreateFlags(),
+	                           1, &uboBindings));
 
-	// Begin a new render pass over the whole extent.
-	into.beginRenderPass(
-	  vk::RenderPassBeginInfo(
-	    pass, fb, vk::Rect2D({ 0, 0 }, extent), 1, &ccol),
-	  vk::SubpassContents::eInline);
+	const auto& pcrange = vk::PushConstantRange(
+	  vk::ShaderStageFlagBits::eAll, 0,
+	  sizeof(Bridge::PushConstants));
 
-	// Bind the graphics pipeline.
-	into.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-	// Draw 3 vertices.
-	into.draw(3, 1, 0, 0);
-	// End the render pass.
-	into.endRenderPass();
+	auto pl_layout = device.createPipelineLayout(
+	  vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(),
+	                               1, &descriptor_set_layout, 1,
+	                               &pcrange),
+	  nullptr, loader);
+
+	return std::make_tuple(descriptor_set_layout, pl_layout);
     }
 
-    Scene::Shader Triangle::shader(void) const noexcept {
-	return Scene::Shader{ res::ID::triangle_frag_spv,
-	                      res::ID::triangle_vert_spv };
-    };
+    void Scene::encode_graphics_cmd(
+      const vk::CommandBuffer& into, const vk::PipelineLayout& layout,
+      const vk::Event& evt, const Bridge::PushConstants& pcs) const
+      noexcept {
 
-    void PushConstants::encode_renderpass(
-      const vk::CommandBuffer&         into,
-      const vk::DispatchLoaderDynamic& loader,
-      const vk::RenderPass& pass, const vk::Framebuffer& fb,
-      const vk::Extent2D& extent, const vk::Pipeline& pipeline,
-      const uint32_t device_mask) const noexcept {
+	into.pushConstants(layout, vk::ShaderStageFlagBits::eAll, 0,
+	                   sizeof(Bridge::PushConstants), &pcs);
 
-	// Make a clearcolor config.
-	vk::ClearValue ccol(vk::ClearColorValue(
-	  std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f }));
-
-	// Set the device mask.
-	into.setDeviceMaskKHR(device_mask, loader);
-
-	// Begin a new render pass over the whole extent.
-	into.beginRenderPass(
-	  vk::RenderPassBeginInfo(
-	    pass, fb, vk::Rect2D({ 0, 0 }, extent), 1, &ccol),
-	  vk::SubpassContents::eInline);
-
-	// Bind the graphics pipeline.
-	into.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-	// Draw 6 vertices.
-	into.draw(6, 1, 0, 0);
-	// End the render pass.
-	into.endRenderPass();
+	// After completing the push constant command, set the
+	// event status.
+	into.setEvent(evt, vk::PipelineStageFlagBits::eAllCommands);
     }
 
-    Scene::Shader PushConstants::shader(void) const noexcept {
-	return Scene::Shader{ res::ID::pushconstants_frag_spv,
-	                      res::ID::pushconstants_vert_spv };
-    };
-
-    const Triangle      DefaultScenes::triangle{};
-    const PushConstants DefaultScenes::pushconstants{};
-
-} // namespace phx_sdl
+}; // namespace phx_sdl

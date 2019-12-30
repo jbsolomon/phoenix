@@ -185,16 +185,37 @@ namespace phx_sdl {
 	    return available_formats[0].surfaceFormat;
 	}
 
-	vk::PresentModeKHR select_present_mode(
-	  const std::vector<vk::PresentModeKHR>& available_modes) {
+	using pmode = vk::PresentModeKHR;
+	template <bool debugging = false,
+	          typename ostr  = decltype(std::cerr)>
+	pmode
+	select_present_mode(ostr& out, const std::vector<pmode>& modes,
+	                    const pmode& prefer = pmode::eFifoRelaxed) {
 
-	    for (const auto& mode : available_modes) {
-		if (mode == vk::PresentModeKHR::eMailbox) {
-		    return mode;
+	    // Default to FIFO, which is always available.
+	    auto choose = pmode::eFifo;
+
+	    if constexpr (debugging) {
+		out << "Selecting among available present modes:"
+		    << std::endl;
+	    }
+
+	    for (const auto& mode : modes) {
+		if constexpr (debugging) {
+		    out << "  " << vk::to_string(mode) << std::endl;
+		}
+
+		if (mode == prefer) {
+		    choose = mode;
 		}
 	    }
 
-	    return vk::PresentModeKHR::eFifo;
+	    if constexpr (debugging) {
+		out << "Selected " << vk::to_string(choose) << std::endl
+		    << std::endl;
+	    }
+
+	    return choose;
 	}
 
 	vk::Extent2D select_swap_extent(
@@ -447,9 +468,11 @@ namespace phx_sdl {
 	    return result;
 	}
 
+	template <bool debugging = false,
+	          typename ostr  = decltype(std::cerr)>
 	std::tuple<vk::SwapchainKHR, vk::SurfaceFormatKHR, vk::Extent2D>
 	create_swapchain(
-	  const vk::PhysicalDevice& phys_device,
+	  ostr& out, const vk::PhysicalDevice& phys_device,
 	  const vk::Device& device, const vk::SurfaceKHR& surface,
 	  const vk::DispatchLoaderDynamic& loader, uint32_t width,
 	  uint32_t height,
@@ -464,8 +487,8 @@ namespace phx_sdl {
 	    // Select the swapchain surface format, presentation mode,
 	    // and image extent.
 	    const auto swc_format = select_format(swc_info.sfc_formats);
-	    const auto& swc_pmode = select_present_mode(
-	      swc_info.present_modes);
+	    const auto& swc_pmode = select_present_mode<debugging>(
+	      out, swc_info.present_modes);
 	    const auto swc_extent = select_swap_extent(
 	      swc_info.sfc_capabilities, width, height);
 
@@ -738,7 +761,7 @@ namespace phx_sdl {
         : window(std::move(w)),
           queue_priority(std::make_unique<float>(1.0f)),
           scene(scene_in),
-          intent(bridge::Intent{ glm::vec2{ 0.0, 0.0 } }),
+          intent(Scene::Bridge::Intent{ glm::vec2{ 0.0, 0.0 } }),
           app_info(
             std::make_unique<vk::ApplicationInfo>(vk::ApplicationInfo(
               w.get_title(), VK_MAKE_VERSION(0, 0, 1), "Phoenix Engine",
@@ -945,8 +968,10 @@ namespace phx_sdl {
 
 	// create_swapchain returns a tuple with the swapchain along
 	// with its format and extent, so unpack that using std::tie.
-	std::tie(swapchain, swc_format, swc_extent) = create_swapchain(
-	  phys_device, device, surface, dyn_loader, width, height);
+	std::tie(swapchain, swc_format, swc_extent) =
+	  create_swapchain<debugging>(std::cerr, phys_device, device,
+	                              surface, dyn_loader, width,
+	                              height);
 
 	swc_images = device.getSwapchainImagesKHR(swapchain);
 
@@ -1012,9 +1037,10 @@ namespace phx_sdl {
 	    vert_stage_config, frag_stage_config
 	};
 
-	vk::PipelineVertexInputStateCreateInfo vertex_input_config(
-	  vk::PipelineVertexInputStateCreateFlags(), 0, nullptr, 0,
-	  nullptr);
+	const auto& vertex_input_config =
+	  vk::PipelineVertexInputStateCreateInfo(
+	    vk::PipelineVertexInputStateCreateFlags(), 0, nullptr, 0,
+	    nullptr);
 
 	vk::PipelineInputAssemblyStateCreateInfo input_assembly_config(
 	  vk::PipelineInputAssemblyStateCreateFlags(),
@@ -1075,26 +1101,9 @@ namespace phx_sdl {
 	    SDL_Vulkan_GetVkGetInstanceProcAddr()),
 	  device, vkGetDeviceProcAddr);
 
-	// Pipeline layout includes information about uniform buffers
-	// and push constants. etc.
-	vk::DescriptorSetLayoutBinding uboBindings(
-	  0, vk::DescriptorType::eUniformBuffer, 1,
-	  vk::ShaderStageFlagBits::eAll);
-
-	// The descriptor set layout is necessary for using push
-	// constants and UBOs.
-	descriptor_set_layout = device.createDescriptorSetLayout(
-	  vk::DescriptorSetLayoutCreateInfo(
-	    vk::DescriptorSetLayoutCreateFlags(), 1, &uboBindings));
-
-	const auto& pcrange = vk::PushConstantRange(
-	  vk::ShaderStageFlagBits::eAll, 0,
-	  sizeof(bridge::PushConstants));
-	pl_layout = device.createPipelineLayout(
-	  vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(),
-	                               1, &descriptor_set_layout, 1,
-	                               &pcrange),
-	  nullptr, dyn_loader);
+	std::tie(descriptor_set_layout,
+	         pl_layout) = scene.create_pipeline_layout(device,
+	                                                   dyn_loader);
 
 	vk::AttachmentDescription2KHR color_attachment_descr(
 	  vk::AttachmentDescriptionFlags(), swc_format.format,
@@ -1230,7 +1239,7 @@ namespace phx_sdl {
           app_info(std::move(from.app_info)),
 
           // Resources that exist outside of the Renderer's lifetime.
-          scene(from.scene),
+          scene(std::move(from.scene)),
 
           // State.
           intent(from.intent),
@@ -1293,7 +1302,7 @@ namespace phx_sdl {
 	// TODO: Replace this senseless design with a sensible
 	// direct-mutation or "functional" handle for modifying state in
 	// user code.
-	intent = bridge::Intent{ glm::vec2{
+	intent = Scene::Bridge::Intent{ glm::vec2{
 	  double(in.x - double(width) / 2.0) / (double(width) / 2.0),
 	  double(in.y - double(height) / 2.0) /
 	    (double(height) / 2.0) } };
@@ -1349,17 +1358,12 @@ namespace phx_sdl {
 	    cb.begin(vk::CommandBufferBeginInfo(
 	      vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
-	    const auto& pcs = bridge::PushConstants{
-		intent,
-		float(swc_extent.width) / float(swc_extent.height),
-	    };
-
-	    cb.pushConstants(pl_layout, vk::ShaderStageFlagBits::eAll,
-	                     0, sizeof(bridge::PushConstants), &pcs);
-	    // After completing the push constant command, set the
-	    // event status.
-	    cb.setEvent(tc.evt,
-	                vk::PipelineStageFlagBits::eAllCommands);
+	    scene.encode_graphics_cmd(
+	      cb, pl_layout, tc.evt,
+	      Scene::Bridge::PushConstants{
+	        intent,
+	        float(swc_extent.width) / float(swc_extent.height),
+	      });
 
 	    cb.end();
 
@@ -1519,8 +1523,9 @@ namespace phx_sdl {
 		}
 
 		std::tie(tmp_swapchain, swc_format, swc_extent) =
-		  create_swapchain(phys_device, device, surface,
-		                   dyn_loader, w, h, swapchain);
+		  create_swapchain<debugging>(
+		    std::stringstream(), phys_device, device, surface,
+		    dyn_loader, w, h, swapchain);
 	    } catch ([[maybe_unused]] phx_err::Retry& r) {
 		continue;
 	    }
@@ -1610,14 +1615,12 @@ namespace phx_sdl {
 	  vk::PipelineColorBlendStateCreateFlags(), false,
 	  vk::LogicOp::eCopy, 1, &color_blend_attachment);
 
-	// Configure pipeline layout / push constants / UBOs.
-	const auto& pcrange = vk::PushConstantRange(
-	  vk::ShaderStageFlagBits::eAll, 0,
-	  sizeof(bridge::PushConstants));
-	pl_layout = device.createPipelineLayout(
-	  vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(),
-	                               0, nullptr, 1, &pcrange),
-	  nullptr, dyn_loader);
+	// It's always necessary to rebuild the pipeline layout after
+	// window invalidation, but we can reuse the descriptor set
+	// layout.
+	std::tie(descriptor_set_layout, pl_layout) =
+	  scene.create_pipeline_layout(device, dyn_loader,
+	                               descriptor_set_layout);
 
 	vk::AttachmentDescription2KHR color_attachment_descr(
 	  vk::AttachmentDescriptionFlags(), swc_format.format,

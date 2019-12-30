@@ -1,5 +1,9 @@
 set(SDLScene_SRCS
   scene.cxx
+  defaults.cxx
+  triangle.cxx 
+  pushconstants.cxx 
+  texture2d.cxx
 )
 
 find_package(Vulkan REQUIRED)

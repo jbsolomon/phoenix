@@ -31,30 +31,6 @@ namespace phx_sdl {
 
     } // namespace cleanup
 
-    // Functionality for bridging GLSL / C++.
-    namespace bridge {
-
-	// The interface to user intentions.
-	struct Intent {
-	    // The direction the user indicates.
-	    glm::vec2 m;
-	};
-
-	struct Aspect {
-	    // The ratio of screen width to screen height.
-	    float a;
-	};
-
-	struct PushConstants {
-	    // A container for all push constants.
-	    Intent i;
-	    Aspect a;
-	};
-
-	static_assert(sizeof(PushConstants) <= 128);
-
-    }; // namespace bridge
-
     struct TransientCommand {
 	vk::CommandBuffer buf;
 	vk::Event         evt;
@@ -177,8 +153,9 @@ namespace phx_sdl {
 	// Resources that exist outside of the lifetime of the Renderer.
 	const Scene& scene;
 
-	// State and push constants.
-	bridge::Intent intent;
+	// TODO: Refactor for sanity.
+	// State / push constants.
+	Scene::Bridge::Intent intent;
 
 	// TODO: Refactor into a usable debugger harness or API, e.g.
 	// with auto extension config + dynamic loader built-in
